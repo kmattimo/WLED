@@ -476,6 +476,48 @@ uint16_t mode_rainbow(void) {
 static const char _data_FX_MODE_RAINBOW[] PROGMEM = "Colorloop@!,Saturation;;!;01";
 
 
+uint16_t mode_rainbow_soundreactive(void) {
+  static uint8_t smoothedPulse = 0;
+
+  // Get current sound level (0–255)
+  um_data_t *um_data = getAudioData();
+  // float volumeSmth  = *(float*)   um_data->u_data[0]; // ?? 
+  // int   volumeRaw   = *(int16_t*) um_data->u_data[1];
+  uint8_t   rawLevel   = *(uint8_t*) um_data->u_data[1];
+
+  uint8_t minBrightness = 100;
+
+  // Invert and scale brightness
+  uint8_t inverted = 255 - rawLevel;
+  uint8_t scaled = scale8(inverted, 255 - minBrightness);
+  uint8_t targetPulse = minBrightness + scaled;
+
+  // Fast rise / slow fall smoothing
+  if (targetPulse > smoothedPulse) {
+    // Fast rise - move 1/2 way towards target
+    smoothedPulse += (targetPulse - smoothedPulse) >> 1;  // attack smoothing
+  } else {
+    // Slow fall - move 1/32??? th way towards target
+    smoothedPulse += (targetPulse - smoothedPulse) >> 5;  // release smoothing
+  }
+
+  // Rainbow position
+  unsigned counter = (strip.now * ((SEGMENT.speed >> 2) + 2)) & 0xFFFF;
+  counter = counter >> 8;
+
+  // Get color and dim by smoothed pulse
+  uint32_t color = SEGMENT.color_wheel(counter);
+
+  //TODO: try white
+  color = color_blend(0x000000, color, smoothedPulse);
+
+  SEGMENT.fill(color);
+  return FRAMETIME;
+}
+
+static const char _data_FX_MODE_RAINBOW_SOUNDREACTIVE[] PROGMEM = "Colorloop (Sound)@!,Sound Sensitivity;;!;01";
+
+
 /*
  * Cycles a rainbow over the entire string of LEDs.
  */
@@ -10734,6 +10776,8 @@ void WS2812FX::setupEffectData() {
   addEffect(FX_MODE_FLOWSTRIPE, &mode_FlowStripe, _data_FX_MODE_FLOWSTRIPE);
   addEffect(FX_MODE_WAVESINS, &mode_wavesins, _data_FX_MODE_WAVESINS);
   addEffect(FX_MODE_ROCKTAVES, &mode_rocktaves, _data_FX_MODE_ROCKTAVES);
+  addEffect(FX_MODE_RAINBOW_SOUNDREACTIVE, &mode_rainbow_soundreactive, _data_FX_MODE_RAINBOW_SOUNDREACTIVE);
+
 
   // --- 2D  effects ---
 #ifndef WLED_DISABLE_2D
