@@ -478,17 +478,25 @@ static const char _data_FX_MODE_RAINBOW[] PROGMEM = "Colorloop@!,Saturation;;!;0
 
 uint16_t mode_rainbow_soundreactive(void) {
   static uint8_t smoothedPulse = 0;
+  static uint16_t rainbowOffset = 0;
 
   // Get current sound level (0–255)
   um_data_t *um_data = getAudioData();
   // float volumeSmth  = *(float*)   um_data->u_data[0]; // ?? 
-  // int   volumeRaw   = *(int16_t*) um_data->u_data[1];
-  uint8_t   rawLevel   = *(uint8_t*) um_data->u_data[1];
+  // uint8_t   rawLevel   = *(uint8_t*) um_data->u_data[1];
 
-  uint8_t minBrightness = 100;
+  // BASS MODE - BASS REACT ONLY
+  // TODO: expose FFT dials
+  uint8_t *fftResult = (uint8_t*)um_data->u_data[2];
+  // uint8_t bassLevel = max(max(fftResult[0], fftResult[1]), fftResult[2]); // combine lowest 3 bass bands
+  uint8_t bassLevel = max(fftResult[0], fftResult[1]); // try just lowest 2
+
+
+  // TODO: make a parameter
+  uint8_t minBrightness = 180;
 
   // Invert and scale brightness
-  uint8_t inverted = 255 - rawLevel;
+  uint8_t inverted = 255 - bassLevel;
   uint8_t scaled = scale8(inverted, 255 - minBrightness);
   uint8_t targetPulse = minBrightness + scaled;
 
@@ -497,8 +505,8 @@ uint16_t mode_rainbow_soundreactive(void) {
     // Fast rise - move 1/2 way towards target
     smoothedPulse += (targetPulse - smoothedPulse) >> 1;  // attack smoothing
   } else {
-    // Slow fall - move 1/32??? th way towards target
-    smoothedPulse += (targetPulse - smoothedPulse) >> 5;  // release smoothing
+    // Slow fall - move X way towards target
+    smoothedPulse += (targetPulse - smoothedPulse) >> 4;  // release smoothing
   }
 
   // Rainbow position
@@ -506,16 +514,23 @@ uint16_t mode_rainbow_soundreactive(void) {
   counter = counter >> 8;
 
   // Get color and dim by smoothed pulse
-  uint32_t color = SEGMENT.color_wheel(counter);
-
-  //TODO: try white
+  // regular rainbow
+  // uint32_t color = SEGMENT.color_wheel(counter);
+  // color = color_blend(0x000000, color, smoothedPulse);
+  
+  // Modify rainbow offset based on sound level
+  uint16_t baseSpeed = ((SEGMENT.speed >> 2) + 2);  // Base speed
+  uint8_t boost = scale8(bassLevel, 128);  // boost by up to a factor when loud
+  rainbowOffset += baseSpeed + boost;
+  // Get color from wheel and apply brightness
+  uint32_t color = SEGMENT.color_wheel(rainbowOffset >> 8);
   color = color_blend(0x000000, color, smoothedPulse);
 
   SEGMENT.fill(color);
   return FRAMETIME;
 }
 
-static const char _data_FX_MODE_RAINBOW_SOUNDREACTIVE[] PROGMEM = "Colorloop (Sound)@!,Sound Sensitivity;;!;01";
+static const char _data_FX_MODE_RAINBOW_SOUNDREACTIVE[] PROGMEM = "Colorloop (Sound)@!,Sound Sensitivity;;!;01fm";
 
 
 /*
