@@ -475,29 +475,34 @@ uint16_t mode_rainbow(void) {
 }
 static const char _data_FX_MODE_RAINBOW[] PROGMEM = "Colorloop@!,Saturation;;!;01";
 
-
+/*
+ * Cycles all LEDs at once through a rainbow, while reacting to sound in a smooth way.
+ */
 uint16_t mode_rainbow_soundreactive(void) {
   static uint8_t smoothedPulse = 0;
   static uint16_t rainbowOffset = 0;
 
-  // Get current sound level (0–255)
+  // Get FFT data from sound reactive usermod
   um_data_t *um_data = getAudioData();
-  // float volumeSmth  = *(float*)   um_data->u_data[0]; // ?? 
-  // uint8_t   rawLevel   = *(uint8_t*) um_data->u_data[1];
 
   // BASS MODE - BASS REACT ONLY
   // TODO: expose FFT dials
   uint8_t *fftResult = (uint8_t*)um_data->u_data[2];
   // uint8_t bassLevel = max(max(fftResult[0], fftResult[1]), fftResult[2]); // combine lowest 3 bass bands
-  uint8_t bassLevel = max(fftResult[0], fftResult[1]); // try just lowest 2
+  // uint8_t bassLevel = max(fftResult[0], fftResult[1]); // try just lowest 2
+  uint8_t bassLevel = fftResult[0]; // just lowest band (INMP441 mic goes down to 60hz. this is 60hz to what?)
 
 
-  // TODO: make a parameter
-  uint8_t minBrightness = 180;
+  
+  // use SEGMENT.intensity as the min brightness control
+  // invert it so more intensity = more flashing
+  uint8_t minBrightness = 255 - SEGMENT.intensity;
 
   // Invert and scale brightness
   uint8_t inverted = 255 - bassLevel;
+  // map the inverted level into the range between minBrightness and 255
   uint8_t scaled = scale8(inverted, 255 - minBrightness);
+  // final target brightness, always above minBrightness
   uint8_t targetPulse = minBrightness + scaled;
 
   // Fast rise / slow fall smoothing
@@ -505,33 +510,54 @@ uint16_t mode_rainbow_soundreactive(void) {
     // Fast rise - move 1/2 way towards target
     smoothedPulse += (targetPulse - smoothedPulse) >> 1;  // attack smoothing
   } else {
-    // Slow fall - move X way towards target
-    smoothedPulse += (targetPulse - smoothedPulse) >> 4;  // release smoothing
+    // Slow fall - move slower towards target
+    // use C1 param, make it in range from 0-7 to use as a bit shift
+    uint8_t releaseShift = SEGMENT.custom1 >> 5;  // Same as dividing by 32
+    smoothedPulse += (targetPulse - smoothedPulse) >> releaseShift;  // release smoothing
   }
 
-  // Rainbow position
-  unsigned counter = (strip.now * ((SEGMENT.speed >> 2) + 2)) & 0xFFFF;
-  counter = counter >> 8;
 
-  // Get color and dim by smoothed pulse
-  // regular rainbow
-  // uint32_t color = SEGMENT.color_wheel(counter);
-  // color = color_blend(0x000000, color, smoothedPulse);
-  
-  // Modify rainbow offset based on sound level
-  uint16_t baseSpeed = ((SEGMENT.speed >> 2) + 2);  // Base speed
-  uint8_t boost = scale8(bassLevel, 128);  // boost by up to a factor when loud
-  rainbowOffset += baseSpeed + boost;
+  // Base rainbow position, before modifying rate with sound level
+  uint16_t rainbowPosition = ((SEGMENT.speed >> 2) + 2) & 0xFFFF;  
+  // I don't really understand this but it worked in the original rainbow.
+  // Bit shift moved to later down, after speed mod
+
+  // try this parameter raw, without scaling
+  uint8_t bass_speed_boost = scale8(bassLevel, SEGMENT.custom2);  // boost rainbow speed by up to a factor when loud
+  rainbowOffset += rainbowPosition + bass_speed_boost;
+
+
   // Get color from wheel and apply brightness
   uint32_t color = SEGMENT.color_wheel(rainbowOffset >> 8);
+
+  //TODO: blend with SEGMENT.intensity? Like the base rainbow effect 
   color = color_blend(0x000000, color, smoothedPulse);
 
   SEGMENT.fill(color);
   return FRAMETIME;
 }
 
-static const char _data_FX_MODE_RAINBOW_SOUNDREACTIVE[] PROGMEM = "Colorloop (Sound)@!,Sound Sensitivity;;!;01fm";
+// TODO PARAMS: 
+// - color saturation
+// - sound sensitivity (how to use??)
+// - low bound for FFT bass (is this built in somewhere?)
 
+
+// https://kno.wled.ge/interfaces/json-api/#effect-metadata
+// Labels (section 2)
+//   Colorloop (FFT) - the name of the effect
+//   @ - separator within the label
+//   Lables of sliders
+// Flags - (section 4)
+//   01 means it works with single (0) or 1D strips
+//   f means it reacts to audio frequency (fft)
+// Defaults - (section 5) comma separated
+//    sx - (exposed as SEGMENT.SPEED) default to a slow speed (I think slow speeds are more pleasant)
+//    ix - (exposed as SEGMENT.INTENSITY) default moderate intensity
+//    c1 - use for release time (how fast the pulse recovers to normal). 4 was a good value as a bit shift, so default to 160
+//    c2 - use for speeding up the rainbow based on sound. 64 looked okay as a default
+static const char _data_FX_MODE_RAINBOW_SOUNDREACTIVE[] PROGMEM = "Colorloop (FFT)@Base Speed,Intensity,Release Time,React Speed;;!;01f;sx=20,ix=180,c1=160,c2=64";
+// sometimes these don't get set? not sure if my fault or not
 
 /*
  * Cycles a rainbow over the entire string of LEDs.
