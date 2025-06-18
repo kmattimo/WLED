@@ -505,10 +505,14 @@ uint16_t mode_rainbow_soundreactive(void) {
   // final target brightness, always above minBrightness
   uint8_t targetPulse = minBrightness + scaled;
 
+   uint8_t bass_speed_boost = 0;
+
   // Fast rise / slow fall smoothing
   if (targetPulse > smoothedPulse) {
     // Fast rise - move 1/2 way towards target
     smoothedPulse += (targetPulse - smoothedPulse) >> 1;  // attack smoothing
+    // boost speed on attack only
+    bass_speed_boost = scale8(bassLevel, SEGMENT.custom2);  // boost rainbow speed by up to a factor when loud
   } else {
     // Slow fall - move slower towards target
     // use C1 param, make it in range from 0-7 to use as a bit shift
@@ -519,11 +523,9 @@ uint16_t mode_rainbow_soundreactive(void) {
 
   // Base rainbow position, before modifying rate with sound level
   uint16_t rainbowPosition = ((SEGMENT.speed >> 2) + 2) & 0xFFFF;  
-  // I don't really understand this but it worked in the original rainbow.
   // Bit shift moved to later down, after speed mod
 
-  // try this parameter raw, without scaling
-  uint8_t bass_speed_boost = scale8(bassLevel, SEGMENT.custom2);  // boost rainbow speed by up to a factor when loud
+  // add speed boost, if we added it above
   rainbowOffset += rainbowPosition + bass_speed_boost;
 
 
